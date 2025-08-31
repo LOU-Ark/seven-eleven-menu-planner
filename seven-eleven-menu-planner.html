@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>セブン-イレブン惣菜で献立プランナー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals with Green Accent -->
+    <!-- Application Structure Plan: アプリケーションは、ユーザーが直感的に操作できるタスク指向のダッシュボード構造を採用します。左側にフィルターと選択中の献立サマリー、右側に商品グリッドを配置。このレイアウトにより、ユーザーは商品を絞り込みながら、献立の合計カロリーや価格といった重要な情報をリアルタイムで確認できます。この対話的なフィードバックは、単なる商品リストよりもはるかに効果的に、バランスの取れた献立作りを支援します。栄養バランスはドーナツチャートで視覚化し、一目で献立の構成がわかるようにします。 -->
+    <!-- Visualization & Content Choices: [商品データ -> 整理 -> HTMLカードグリッド -> クリックで追加 -> ECサイトのようなUIで直感的] [献立構成 -> 情報提供/比較 -> ドーナツチャート -> リアルタイム更新 -> カロリー比率を視覚的に伝え、バランスの良い選択を促進。ライブラリ: Chart.js] -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Noto Sans JP', 'Inter', sans-serif;
+            background-color: #F9F9F7;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: auto;
+            min-height: 300px;
+            margin: auto;
+        }
+        .active-filter {
+            background-color: #00743E !important;
+            color: white !important;
+            border-color: #00743E !important;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">セブン-イレブン惣菜で献立プランナー</h1>
+            <p class="mt-2 text-gray-600">好きな惣菜を選んで、あなただけのオリジナル献立を作りましょう。</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <aside class="lg:col-span-1 lg:sticky top-8 self-start">
+                <div class="bg-white p-6 rounded-2xl shadow-lg">
+                    <h2 class="text-xl font-bold mb-4 border-b pb-2">今日の献立</h2>
+                    <div id="meal-list" class="mb-4 min-h-[100px]">
+                        <p id="empty-meal-text" class="text-gray-500">商品を選んで献立を追加してください。</p>
+                    </div>
+
+                    <div class="border-t pt-4 space-y-3">
+                        <div class="flex justify-between items-center font-semibold text-lg">
+                            <span>合計カロリー:</span>
+                            <span id="total-calories" class="text-green-700">0 kcal</span>
+                        </div>
+                        <div class="flex justify-between items-center font-semibold text-lg">
+                            <span>合計金額 (税込):</span>
+                            <span id="total-price" class="text-green-700">¥ 0</span>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6">
+                        <div class="chart-container">
+                            <canvas id="nutrition-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <button id="clear-meal-btn" class="w-full mt-6 bg-red-500 text-white py-2 px-4 rounded-lg hover:bg-red-600 transition-colors">
+                        献立をリセット
+                    </button>
+                </div>
+            </aside>
+
+            <main class="lg:col-span-2">
+                <div class="mb-6 bg-white p-4 rounded-2xl shadow-md sticky top-0 z-10">
+                    <h3 class="font-bold text-lg mb-3">カテゴリーで絞り込む</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <button class="filter-btn py-2 px-4 border rounded-full hover:bg-gray-100 transition-colors active-filter" data-filter="all">すべて</button>
+                        <button class="filter-btn py-2 px-4 border rounded-full hover:bg-gray-100 transition-colors" data-filter="shusai">主菜</button>
+                        <button class="filter-btn py-2 px-4 border rounded-full hover:bg-gray-100 transition-colors" data-filter="fukusai">副菜</button>
+                        <button class="filter-btn py-2 px-4 border rounded-full hover:bg-gray-100 transition-colors" data-filter="shushoku">主食</button>
+                        <button class="filter-btn py-2 px-4 border rounded-full hover:bg-gray-100 transition-colors" data-filter="shirumono">汁物・スープ</button>
+                         <button id="random-meal-btn" class="py-2 px-4 border border-amber-500 bg-amber-400 text-white rounded-full hover:bg-amber-500 transition-colors">おまかせ提案！</button>
+                    </div>
+                </div>
+
+                <div id="product-grid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const products = [
+            { id: 1, name: '金のハンバーグ', category: 'shusai', categoryJP: '主菜', price: 429, calories: 356, image: 'https://placehold.co/300x200/e2e8f0/334155?text=金のハンバーグ' },
+            { id: 2, name: 'さばの塩焼', category: 'shusai', categoryJP: '主菜', price: 343, calories: 298, image: 'https://placehold.co/300x200/e2e8f0/334155?text=さばの塩焼' },
+            { id: 3, name: '７プレミアムゴールド　金の豚角煮', category: 'shusai', categoryJP: '主菜', price: 429, calories: 282, image: 'https://placehold.co/300x200/e2e8f0/334155?text=金の豚角煮' },
+            { id: 4, name: '鶏肉と野菜の黒酢あん', category: 'shusai', categoryJP: '主菜', price: 321, calories: 195, image: 'https://placehold.co/300x200/e2e8f0/334155?text=鶏肉と野菜の黒酢あん' },
+            { id: 5, name: 'きんぴらごぼう', category: 'fukusai', categoryJP: '副菜', price: 138, calories: 75, image: 'https://placehold.co/300x200/e2e8f0/334155?text=きんぴらごぼう' },
+            { id: 6, name: 'ひじきの煮物', category: 'fukusai', categoryJP: '副菜', price: 138, calories: 88, image: 'https://placehold.co/300x200/e2e8f0/334155?text=ひじきの煮物' },
+            { id: 7, name: '北海道産じゃがいものポテトサラダ', category: 'fukusai', categoryJP: '副菜', price: 149, calories: 154, image: 'https://placehold.co/300x200/e2e8f0/334155?text=ポテトサラダ' },
+            { id: 8, name: 'コールスローサラダ', category: 'fukusai', categoryJP: '副菜', price: 235, calories: 101, image: 'https://placehold.co/300x200/e2e8f0/334155?text=コールスロー' },
+            { id: 9, name: '７プレミアム　パックごはん', category: 'shushoku', categoryJP: '主食', price: 138, calories: 296, image: 'https://placehold.co/300x200/e2e8f0/334155?text=ごはん' },
+            { id: 10, name: '７プレミアムゴールド　金の直火焼おにぎり', category: 'shushoku', categoryJP: '主食', price: 257, calories: 345, image: 'https://placehold.co/300x200/e2e8f0/334155?text=金のおにぎり' },
+            { id: 11, name: '７種具材の豚汁', category: 'shirumono', categoryJP: '汁物', price: 213, calories: 104, image: 'https://placehold.co/300x200/e2e8f0/334155?text=豚汁' },
+            { id: 12, name: 'なめこと豆腐の味噌汁', category: 'shirumono', categoryJP: '汁物', price: 105, calories: 30, image: 'https://placehold.co/300x200/e2e8f0/334155?text=味噌汁' },
+            { id: 13, name: '海老のチリソース', category: 'shusai', categoryJP: '主菜', price: 321, calories: 160, image: 'https://placehold.co/300x200/e2e8f0/334155?text=エビチリ' },
+            { id: 14, name: 'ほうれん草とチーズのミニオムレツ', category: 'fukusai', categoryJP: '副菜', price: 203, calories: 122, image: 'https://placehold.co/300x200/e2e8f0/334155?text=ミニオムレツ' },
+            { id: 15, name: '７プレミアム　かにクリームコロッケ', category: 'shusai', categoryJP: '主菜', price: 170, calories: 150, image: 'https://placehold.co/300x200/e2e8f0/334155?text=カニクリームコロッケ' },
+            { id: 16, name: 'だし巻玉子', category: 'fukusai', categoryJP: '副菜', price: 149, calories: 96, image: 'https://placehold.co/300x200/e2e8f0/334155?text=だし巻玉子' }
+        ];
+
+        let currentFilter = 'all';
+        let currentMeal = [];
+        let nutritionChart;
+
+        const productGrid = document.getElementById('product-grid');
+        const mealList = document.getElementById('meal-list');
+        const emptyMealText = document.getElementById('empty-meal-text');
+        const totalCaloriesEl = document.getElementById('total-calories');
+        const totalPriceEl = document.getElementById('total-price');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const clearMealBtn = document.getElementById('clear-meal-btn');
+        const randomMealBtn = document.getElementById('random-meal-btn');
+
+        function renderProducts() {
+            productGrid.innerHTML = '';
+            const filteredProducts = currentFilter === 'all'
+                ? products
+                : products.filter(p => p.category === currentFilter);
+
+            filteredProducts.forEach(product => {
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-lg shadow-md p-4 flex flex-col transition-transform hover:scale-105';
+                card.innerHTML = `
+                    <img src="${product.image}" alt="${product.name}" class="w-full h-32 object-cover rounded-md mb-4" onerror="this.onerror=null;this.src='https://placehold.co/300x200/e2e8f0/334155?text=画像なし';">
+                    <h4 class="font-bold flex-grow">${product.name}</h4>
+                    <div class="text-sm text-gray-500 mt-1">${product.categoryJP}</div>
+                    <div class="flex justify-between items-center mt-2">
+                        <span class="text-gray-700">${product.calories} kcal</span>
+                        <span class="font-semibold text-lg">¥${product.price}</span>
+                    </div>
+                    <button class="add-to-meal-btn w-full mt-4 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors" data-id="${product.id}">
+                        追加
+                    </button>
+                `;
+                productGrid.appendChild(card);
+            });
+
+            document.querySelectorAll('.add-to-meal-btn').forEach(btn => {
+                btn.addEventListener('click', () => addToMeal(parseInt(btn.dataset.id)));
+            });
+        }
+
+        function renderMeal() {
+            if (currentMeal.length === 0) {
+                mealList.innerHTML = '';
+                emptyMealText.style.display = 'block';
+            } else {
+                emptyMealText.style.display = 'none';
+                mealList.innerHTML = currentMeal.map((item, index) => {
+                    const product = products.find(p => p.id === item.id);
+                    return `
+                        <div class="flex justify-between items-center py-2 border-b">
+                            <div class="flex-grow">
+                                <p class="font-semibold">${product.name}</p>
+                                <p class="text-sm text-gray-500">¥${product.price} / ${product.calories} kcal</p>
+                            </div>
+                            <button class="remove-from-meal-btn text-red-500 hover:text-red-700" data-index="${index}">✖</button>
+                        </div>
+                    `;
+                }).join('');
+
+                document.querySelectorAll('.remove-from-meal-btn').forEach(btn => {
+                    btn.addEventListener('click', () => removeFromMeal(parseInt(btn.dataset.index)));
+                });
+            }
+            updateTotals();
+        }
+
+        function updateTotals() {
+            const totalCalories = currentMeal.reduce((sum, item) => {
+                const product = products.find(p => p.id === item.id);
+                return sum + product.calories;
+            }, 0);
+            const totalPrice = currentMeal.reduce((sum, item) => {
+                const product = products.find(p => p.id === item.id);
+                return sum + product.price;
+            }, 0);
+
+            totalCaloriesEl.textContent = `${totalCalories} kcal`;
+            totalPriceEl.textContent = `¥ ${totalPrice.toLocaleString()}`;
+            updateChart();
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('nutrition-chart').getContext('2d');
+            const categoryCalories = currentMeal.reduce((acc, item) => {
+                const product = products.find(p => p.id === item.id);
+                if (!acc[product.categoryJP]) {
+                    acc[product.categoryJP] = 0;
+                }
+                acc[product.categoryJP] += product.calories;
+                return acc;
+            }, {});
+
+            const labels = Object.keys(categoryCalories);
+            const data = Object.values(categoryCalories);
+
+            if (nutritionChart) {
+                nutritionChart.destroy();
+            }
+
+            if (currentMeal.length > 0) {
+                 nutritionChart = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'カロリー構成',
+                            data: data,
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.7)',
+                                'rgba(54, 162, 235, 0.7)',
+                                'rgba(255, 206, 86, 0.7)',
+                                'rgba(75, 192, 192, 0.7)',
+                                'rgba(153, 102, 255, 0.7)',
+                            ],
+                            borderColor: [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)',
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: true,
+                                text: 'カロリー構成'
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        function addToMeal(id) {
+            currentMeal.push({ id });
+            renderMeal();
+        }
+
+        function removeFromMeal(index) {
+            currentMeal.splice(index, 1);
+            renderMeal();
+        }
+
+        function generateRandomMeal() {
+            const shusai = products.filter(p => p.category === 'shusai');
+            const fukusai = products.filter(p => p.category === 'fukusai');
+            const shushoku = products.filter(p => p.category === 'shushoku');
+            const shirumono = products.filter(p => p.category === 'shirumono');
+            
+            const randomShusai = shusai[Math.floor(Math.random() * shusai.length)];
+            const randomFukusai = fukusai[Math.floor(Math.random() * fukusai.length)];
+            const randomShushoku = shushoku[Math.floor(Math.random() * shushoku.length)];
+            const randomShirumono = shirumono[Math.floor(Math.random() * shirumono.length)];
+            
+            currentMeal = [
+                { id: randomShusai.id },
+                { id: randomFukusai.id },
+                { id: randomShushoku.id },
+                { id: randomShirumono.id }
+            ];
+            
+            renderMeal();
+        }
+
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                currentFilter = btn.dataset.filter;
+                filterBtns.forEach(b => b.classList.remove('active-filter'));
+                btn.classList.add('active-filter');
+                renderProducts();
+            });
+        });
+        
+        clearMealBtn.addEventListener('click', () => {
+            currentMeal = [];
+            renderMeal();
+        });
+
+        randomMealBtn.addEventListener('click', generateRandomMeal);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            renderProducts();
+            renderMeal();
+        });
+    </script>
+</body>
+</html>
